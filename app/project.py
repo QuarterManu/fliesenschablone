@@ -11,7 +11,7 @@ import numpy as np
 from . import symmetry as sym
 from . import vision
 from .geometry import Params, auto_struts, build_layers, add_struts, remove_strut
-from .pattern import Curve, FitParams, build_curves
+from .pattern import Curve, FitParams, build_curves, refine_circles
 from .export3d import build_solid, write_stl
 
 
@@ -47,6 +47,7 @@ class Project:
         m = vision.symmetrize_mask(self.mask, self.group, self.rect.line_width_mm)
         graph = vision.skeleton_graph(m)
         self.curves = build_curves(graph, self.rect, self.fit)
+        refine_circles(self.curves, self.mask, self.rect, self.group)
         self.struts = []
 
     def set_symmetry(self, names: list[str]):

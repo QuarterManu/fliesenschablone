@@ -32,8 +32,15 @@ Macht aus einer gezeichneten Zementfliesen-Vorlage (Foto oder Scan) ein druckfer
   - türkis: Nut
 - Bei Bedarf **Glättung** oder **Helligkeitsschwelle** ändern und auf **Neu erkennen** klicken.
 - Symmetrie-Häkchen anpassen und auf **Symmetrie übernehmen** klicken.
-- Haltestege mit **Steg setzen** und **Steg löschen** anpassen, Fehlerkennungen mit
-  **Linie löschen** entfernen.
+- Bearbeiten mit den Werkzeugen über der Zeichnung (in Klammern die Taste dafür):
+  - **Ansehen (Esc)**: verschieben und zoomen
+  - **Haltesteg (S)**: Anfang und Ende anklicken. Ein vorhandenes Stegende kann man anfassen und verschieben.
+  - **Löschen (D)**: Haltesteg oder Linie anklicken. Was gelöscht wird, leuchtet vorher rot auf.
+  - **Linie biegen (B)**: Linie anfassen und ziehen. Der gelbe Kreis zeigt den Biegebereich.
+  - **Linie zeichnen (L)**: Punkte anklicken. Doppelklick oder Enter beendet die Linie.
+  - **Rückgängig / Wiederholen**: Strg+Z / Strg+Y
+  - Mausrad zoomt, mit der rechten Maustaste ziehen verschiebt die Ansicht, und das in jedem Werkzeug.
+  - Alles wird automatisch an den Symmetrieachsen mitgespiegelt.
 - **STL speichern…** wählen und die Datei in den Slicer ziehen.
 - **Projekt speichern…** sichert alles in einer `.fliese`-Datei zum späteren Weiterarbeiten.
 

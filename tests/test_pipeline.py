@@ -65,6 +65,18 @@ def main():
     p.save(os.path.join(tmp, "t.fliese"))
     q = Project.load(os.path.join(tmp, "t.fliese"))
     assert len(q.curves) == len(p.curves) and len(q.struts) == len(p.struts)
+    # Bearbeiten: biegen, zeichnen, rückgängig
+    from app.editing import History, bend, make_curve, add_curve_symmetric
+    h = History()
+    h.push(p)
+    c = next(i for i, c in enumerate(p.curves) if c.kind == "arc")
+    q = p.curves[c].pts[len(p.curves[c].pts) // 2]
+    p.curves, p.struts = bend(p.curves, p.struts, c, q, np.array([2.0, 1.0]), 10.0, p.group)
+    assert p.curves[c].kind == "spline"
+    n_before = len(p.curves)
+    p.curves = add_curve_symmetric(p.curves, make_curve([(-90, -10), (-80, 0), (-70, -15)]), p.group)
+    assert len(p.curves) == n_before + 2, "gezeichnete Linie nicht gespiegelt"
+    assert h.undo(p) and len(p.curves) == n_before and p.curves[c].kind == "arc"
     print(f"OK – {len(p.curves)} Linien, {len(p.struts)} Haltestege, {n} Dreiecke")
 
 

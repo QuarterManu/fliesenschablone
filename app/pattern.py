@@ -163,6 +163,49 @@ def _edge_intersection(prim, ax, s, near):
     return min(sols, key=lambda q: np.linalg.norm(q - near))
 
 
+def _turn(q, i, k, closed):
+    n = len(q)
+    if closed:
+        a, b, c = q[(i - k) % n], q[i], q[(i + k) % n]
+    else:
+        if i - k < 0 or i + k >= n:
+            return 0.0
+        a, b, c = q[i - k], q[i], q[i + k]
+    v1, v2 = b - a, c - b
+    n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+    if n1 < 1e-9 or n2 < 1e-9:
+        return 0.0
+    return float(np.degrees(np.arccos(np.clip(np.dot(v1, v2) / (n1 * n2), -1, 1))))
+
+
+def _find_corners(q, closed=False, step=0.3, min_angle=50.0):
+    """Findet Knicke: starke Richtungsänderung auf kurzem Stück, die sich nicht über
+    eine längere Strecke verteilt (das wäre ein normaler Bogen)."""
+    n = len(q)
+    if n < 12:
+        return []
+    k1 = max(2, int(round(1.2 / step)))
+    k2 = max(k1 + 2, int(round(3.0 / step)))
+    if closed:
+        q = q[:-1] if np.allclose(q[0], q[-1]) else q
+        n = len(q)
+    edge_skip = int(round(2.0 / step))
+    a1 = np.array([_turn(q, i, k1, closed) for i in range(n)])
+    a2 = np.array([_turn(q, i, k2, closed) for i in range(n)])
+    cand = (a1 > min_angle) & (a1 > 0.62 * a2)
+    if not closed:
+        cand[:edge_skip] = False
+        cand[n - edge_skip:] = False
+    out = []
+    sep = int(round(3.0 / step))
+    for i in np.argsort(-a1):
+        if not cand[i]:
+            continue
+        if all(min(abs(i - j), n - abs(i - j)) >= sep for j in out):
+            out.append(int(i))
+    return sorted(out)
+
+
 def ray_square(p, d, half):
     """Schnittpunkt Strahl p + t d (t>0) mit dem Fliesenrand."""
     best = None
@@ -217,7 +260,67 @@ def build_curves(graph: SkelGraph, rect: Rectified, params: FitParams) -> list[C
             deg[b] += 1
         return deg
 
-    # 1) Kurze Stummel (Strichenden, Kreuzungsartefakte) entfernen
+    # Geschlossene Linien ohne Abzweig als Kante mit einem Knoten aufnehmen
+    for loop in graph.loops:
+        lp = to_mm(loop)
+        if len(lp) < 10:
+            continue
+        nodes.append(lp[0].copy())
+        edges.append([len(nodes) - 1, len(nodes) - 1, np.r_[lp, lp[:1]]])
+
+    corners: set[int] = set()
+
+    def direction(e, n, dist=2.0):
+        """Richtung der Kante e, vom Knoten n weg gemessen."""
+        p = e[2] if e[0] == n else e[2][::-1]
+        d = np.r_[0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
+        k = min(np.searchsorted(d, dist), len(p) - 1)
+        v = p[k] - p[0]
+        nv = np.linalg.norm(v)
+        return v / nv if nv > 1e-9 else v
+
+    # 1a) Spitzen erhalten: Bei einer spitz zulaufenden Form erzeugt das Skelett eine
+    #     Gabel (zwei Linien + kurzer Stummel zur Spitze). Statt den Stummel zu löschen,
+    #     werden beide Linien bis zur Spitze verlängert.
+    tip_max = max(6 * lw, 4.0)
+    deg = degrees()
+    tips = []
+    for k, (a, b, p) in enumerate(edges):
+        if a == b:
+            continue
+        for J, T in ((a, b), (b, a)):
+            if deg[T] == 1 and deg[J] == 3 and not near_frame(nodes[T]) and path_length(p) < tip_max:
+                others = [e for i, e in enumerate(edges) if i != k and J in (e[0], e[1])]
+                if len(others) != 2 or any(o[0] == o[1] for o in others):
+                    continue
+                d1, d2 = direction(others[0], J), direction(others[1], J)
+                ang = np.degrees(np.arccos(np.clip(np.dot(d1, d2), -1, 1)))
+                bis = d1 + d2
+                if np.linalg.norm(bis) < 1e-9:
+                    continue
+                bis /= np.linalg.norm(bis)
+                ds = nodes[T] - nodes[J]
+                ds /= max(np.linalg.norm(ds), 1e-9)
+                if ang < 115 and np.dot(ds, -bis) > 0.6:
+                    tips.append((k, J, T))
+                break
+    drop = set()
+    for k, J, T in tips:
+        a, b, p = edges[k]
+        spur_path = p if a == J else p[::-1]  # von J nach T
+        for e in edges:
+            if e is edges[k]:
+                continue
+            if e[0] == J:
+                e[2] = np.r_[spur_path[::-1], e[2][1:]]
+            elif e[1] == J:
+                e[2] = np.r_[e[2], spur_path[1:]]
+        nodes[J] = nodes[T].copy()
+        corners.add(J)
+        drop.add(k)
+    edges = [e for i, e in enumerate(edges) if i not in drop]
+
+    # 1b) Kurze Stummel (Strichenden, Kreuzungsartefakte) entfernen
     spur = max(3 * lw, 2.5)
     for _ in range(3):
         deg = degrees()
@@ -251,14 +354,30 @@ def build_curves(graph: SkelGraph, rect: Rectified, params: FitParams) -> list[C
         groups.setdefault(find(i), []).append(i)
     new_nodes = {}
     for r, members in groups.items():
-        new_nodes[r] = np.mean([nodes[m] for m in members], axis=0)
+        cm = [m for m in members if m in corners]  # Spitzen behalten ihre exakte Position
+        new_nodes[r] = np.mean([nodes[m] for m in (cm or members)], axis=0)
     nodes = [new_nodes.get(find(i)) for i in range(len(nodes))]
     edges = [[find(a), find(b), p] for a, b, p in edges if not (find(a) == find(b) and path_length(p) < merge_d)]
+    corners = {find(c) for c in corners}
+
+    # Doppelte Kanten (zwei fast gleiche Wege zwischen denselben Knoten) entfernen
+    uniq = []
+    for e in edges:
+        dup = False
+        for u in uniq:
+            if {u[0], u[1]} == {e[0], e[1]} and e[0] != e[1]:
+                from shapely.geometry import LineString as _LS
+                if _LS(u[2]).hausdorff_distance(_LS(e[2])) < max(2 * lw, 1.5):
+                    dup = True
+                    break
+        if not dup:
+            uniq.append(e)
+    edges = uniq
 
     # 3) Knoten vom Grad 2 auflösen (zwei Kanten zu einer verbinden)
     for _ in range(len(edges)):
         deg = degrees()
-        idx = [i for i in range(len(nodes)) if deg[i] == 2]
+        idx = [i for i in range(len(nodes)) if deg[i] == 2 and i not in corners]
         changed = False
         for n in idx:
             inc = [k for k, e in enumerate(edges) if e[0] == n or e[1] == n]
@@ -294,18 +413,22 @@ def build_curves(graph: SkelGraph, rect: Rectified, params: FitParams) -> list[C
             p = e[2] if end == 1 else e[2][::-1]
             # Das letzte Stück am Rahmen ist durch die T-Kreuzung verbogen -> abschneiden
             dist_e = half - np.maximum(np.abs(p[:, 0]), np.abs(p[:, 1]))
-            cut = np.nonzero(dist_e > lw + 1.5)[0]
+            cut = np.nonzero(dist_e > 2 * lw + 2.0)[0]
             if len(cut) >= 2 and cut[-1] < len(p) - 1:
                 p = p[:cut[-1] + 1]
             q = p[-1]
-            back = p[max(0, len(p) - 1 - int(3.0 * PX_PER_MM)):]
-            d = back[-1] - back[0]
+            back = resample(p[max(0, len(p) - 1 - int(6.0 * PX_PER_MM)):], 0.3)
+            if len(back) >= 3:
+                # Richtung am Ende aus einem kleinen Kreis-/Geradenstück schätzen
+                d = back[-1] - back[-min(len(back), 8)]
+            else:
+                d = back[-1] - back[0]
             if np.linalg.norm(d) < 1e-6:
                 continue
             d = d / np.linalg.norm(d)
             hit = ray_square(q, d, half)
             dist_edge = half - max(abs(q[0]), abs(q[1]))
-            if hit is not None and hit[0] < 3 * near_frame_dist:
+            if hit is not None and hit[0] < 40.0:
                 tgt = hit[1]
             else:
                 tgt = q.copy()
@@ -316,11 +439,39 @@ def build_curves(graph: SkelGraph, rect: Rectified, params: FitParams) -> list[C
             nodes[n] = tgt
             e[2] = p if end == 1 else p[::-1]
 
+    # 4b) Ecken innerhalb einer Linie erkennen und dort teilen (damit sie spitz bleiben)
+    deg = degrees()
+    new_edges = []
+    for a, b, p in edges:
+        q = resample(p, 0.3)
+        idx = _find_corners(q, closed=(a == b))
+        if not idx:
+            new_edges.append([a, b, p])
+            continue
+        if a == b and deg[a] == 2 and a not in corners:
+            # reine Schleife: Startpunkt auf die erste Ecke legen
+            q = np.r_[q[idx[0]:-1], q[:idx[0] + 1]]
+            nodes[a] = q[0].copy()
+            corners.add(a)
+            idx = [i - idx[0] for i in idx[1:]]
+        cuts = [0] + idx + [len(q) - 1]
+        ids = [a]
+        for i in idx:
+            nodes.append(q[i].copy())
+            corners.add(len(nodes) - 1)
+            ids.append(len(nodes) - 1)
+        ids.append(b)
+        for s0, s1, n0, n1 in zip(cuts[:-1], cuts[1:], ids[:-1], ids[1:]):
+            seg = q[s0:s1 + 1].copy()
+            seg[0], seg[-1] = nodes[n0], nodes[n1]
+            new_edges.append([n0, n1, seg])
+    edges = new_edges
+
     # 5) Jede Kante einzeln ausgleichen
     tol = params.tol_mm
     fits = []  # (edge, prim, smoothed points)
     for a, b, p in edges:
-        if a == b:
+        if a == b and a not in corners:
             fits.append((a, b, ("loop",), p))
             continue
         q = resample(p, 0.3)
@@ -416,17 +567,12 @@ def build_curves(graph: SkelGraph, rect: Rectified, params: FitParams) -> list[C
             pts[0], pts[-1] = p0, p1
             curves.append(Curve(pts, "arc", center=(float(c[0]), float(c[1])), radius=float(R)))
         elif prim[0] == "loop":
-            loop = resample(np.r_[q, q[:1]], 0.3)
+            loop = resample(q, 0.3)
             curves.extend(_fit_loop(loop, tol, lw))
         else:
             qq = q.copy()
             qq[0], qq[-1] = p0, p1
             curves.append(Curve(spline_curve(qq, tol), "spline"))
-
-    for loop in graph.loops:
-        lp = to_mm(loop)
-        lp = resample(np.r_[lp, lp[:1]], 0.3)
-        curves.extend(_fit_loop(lp, tol, lw))
 
     # Gleich große Kreise bekommen exakt denselben Radius
     circ = [c for c in curves if c.kind == "circle"]
@@ -449,3 +595,56 @@ def _fit_loop(lp, tol, lw):
     if c is not None and r <= tol:
         return [Curve(sample_circle(c, R), "circle", True, (float(c[0]), float(c[1])), float(R))]
     return [Curve(spline_curve(lp, tol, closed=True), "spline", True)]
+
+
+def refine_circles(curves: list[Curve], raw_mask: np.ndarray, rect: Rectified, group: list[str]):
+    """Kreise genau dort platzieren, wo sie gezeichnet sind: Jeder Kreis wird in der
+    Originalzeichnung (ohne Symmetrie-Ergänzung) an allen symmetrischen Positionen
+    nachgemessen und der Mittelwert verwendet. Das Ergebnis bleibt exakt symmetrisch."""
+    import cv2
+    from scipy.spatial import cKDTree
+
+    circ = [c for c in curves if c.kind == "circle"]
+    if not circ or len(group) <= 1:
+        return
+    sk = cv2.ximgproc.thinning(raw_mask)
+    rr, cc = np.nonzero(sk)
+    if len(rr) == 0:
+        return
+    half, pad = rect.tile_mm / 2, rect.pad_px
+    pts = np.c_[(cc - pad) / PX_PER_MM - half, half - (rr - pad) / PX_PER_MM]
+    tree = cKDTree(pts)
+    done = set()
+    for c in circ:
+        if id(c) in done:
+            continue
+        c0, R0 = np.array(c.center), c.radius
+        cands, radii = [], []
+        for g in group:
+            gc = sym.apply_points(c0, g)
+            idx = tree.query_ball_point(gc, R0 + 1.5)
+            if not idx:
+                continue
+            q = pts[idx]
+            d = np.linalg.norm(q - gc, axis=1)
+            q = q[np.abs(d - R0) < 1.5]
+            if len(q) < 0.5 * 2 * np.pi * R0 * PX_PER_MM:
+                continue
+            fc, fR, res = fit_circle(q)
+            if fc is None or res > 1.5 or abs(fR - R0) > 1.5:
+                continue
+            ginv = np.round(np.linalg.inv(sym.OPS[g])).astype(int)
+            cands.append(fc @ ginv.T)
+            radii.append(fR)
+        if not cands:
+            continue
+        cm, Rm = np.mean(cands, axis=0), float(np.mean(radii))
+        for g in group:
+            gc = sym.apply_points(c0, g)
+            for d in circ:
+                if id(d) not in done and np.linalg.norm(np.array(d.center) - gc) < 0.8:
+                    nc = sym.apply_points(cm, g)
+                    d.center = (float(nc[0]), float(nc[1]))
+                    d.radius = Rm
+                    d.pts = sample_circle(nc, Rm)
+                    done.add(id(d))

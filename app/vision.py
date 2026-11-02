@@ -138,22 +138,52 @@ def line_mask(rect: Rectified, threshold: int | None = None) -> np.ndarray:
     # kleine Lücken im Strich schließen
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
+    m = fill_small_holes(m, max(1.0, (rect.line_width_mm * 1.2) ** 2) * PX_PER_MM ** 2)
     return m
 
 
 def symmetrize_mask(mask: np.ndarray, group: list[str], line_width_mm: float) -> np.ndarray:
-    """Mittelt die Zeichnung über alle Symmetrie-Operationen -> exakt symmetrisches Rasterbild."""
+    """Macht die Zeichnung exakt symmetrisch.
+
+    Es wird nur ein Grundbereich der Zeichnung verwendet (z. B. die Hälfte bei einer
+    Spiegelachse, ein Achtel bei 8-facher Symmetrie) und dieser in die übrigen Bereiche
+    gespiegelt. So entstehen keine doppelten Linien, wenn die Zeichnung leicht
+    unsymmetrisch ist.
+    """
     if len(group) <= 1:
         return mask
-    sigma = max(line_width_mm * 0.6, 0.6) * PX_PER_MM
-    f = cv2.GaussianBlur(mask.astype(np.float32) / 255.0, (0, 0), sigma)
-    acc = np.zeros_like(f)
+    n = mask.shape[0]
+    c = (n - 1) / 2
+    idx = np.arange(n) - c
+    X, Y = np.meshgrid(idx, -idx)
+    # Bezugspunkt in "allgemeiner Lage" (auf keiner Symmetrieachse)
+    q0 = np.array([0.41, 0.17]) * n / 2
+    d0 = ((X - q0[0]) ** 2 + (Y - q0[1]) ** 2).astype(np.float32)
+    best_d = None
+    out = np.zeros_like(mask)
     for g in group:
-        acc += sym.apply_image(f, g)
-    acc /= len(group)
-    skel = cv2.ximgproc.thinning(mask)
-    ref = float(np.median(f[skel > 0])) if np.any(skel) else 0.5
-    out = (acc > 0.5 * ref).astype(np.uint8) * 255
+        dg = sym.apply_image(d0, g)
+        mg = sym.apply_image(mask, g)
+        if best_d is None:
+            best_d, out = dg, mg
+        else:
+            sel = dg < best_d
+            best_d = np.where(sel, dg, best_d)
+            out = np.where(sel, mg, out)
+    # Nahtstellen an den Achsen minimal schließen
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    out = cv2.morphologyEx(out, cv2.MORPH_CLOSE, k)
+    return out
+
+
+def fill_small_holes(mask: np.ndarray, max_area_px: float) -> np.ndarray:
+    """Schließt winzige Löcher im Strich (z. B. durch Scan-Rauschen)."""
+    inv = (mask == 0).astype(np.uint8)
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    small = np.zeros(n, bool)
+    small[1:] = stats[1:, cv2.CC_STAT_AREA] < max_area_px
+    out = mask.copy()
+    out[small[lab] & (inv > 0)] = 255
     return out
 
 
