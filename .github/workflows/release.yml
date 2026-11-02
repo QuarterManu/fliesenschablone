@@ -1,0 +1,57 @@
+name: Windows-Programm bauen und veröffentlichen
+
+# Startet, sobald ein Versions-Tag wie v0.2.0 hochgeladen wird.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Version und Repository eintragen
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          $repo = "${{ github.repository }}"
+          Set-Content -Encoding utf8 app/version.py "__version__ = `"$v`"`nGITHUB_REPO = `"$repo`""
+          Get-Content app/version.py
+
+      - name: Tests
+        run: python -m tests.test_pipeline
+
+      - name: .exe bauen
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name Fliesenschablone
+          --icon assets/icon.ico
+          --add-data "assets;assets"
+          main.py
+
+      - name: Fertige .exe prüfen
+        shell: pwsh
+        run: |
+          python -c "from tests.test_pipeline import make_drawing; make_drawing('probe.png')"
+          $p = Start-Process -Wait -PassThru dist/Fliesenschablone.exe -ArgumentList "--export","probe.png","probe.stl"
+          if ($p.ExitCode -ne 0 -or -not (Test-Path probe.stl)) { Write-Error "Die .exe hat keine STL erzeugt"; exit 1 }
+          Get-Item probe.stl
+
+      - name: Release veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Fliesenschablone.exe
+          generate_release_notes: true
