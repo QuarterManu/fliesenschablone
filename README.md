@@ -84,21 +84,25 @@ nach, lädt die neue `.exe` herunter, ersetzt sich selbst und startet neu.
 
 ### Neue Version veröffentlichen
 
+In der Datei `VERSION` die Nummer erhöhen (z. B. `0.2.0` → `0.2.1`), dann:
+
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git add .
+git commit -m "Version 0.2.1"
+git push
 ```
+
+Alternativ funktioniert weiterhin ein Tag: `git tag v0.2.1` und `git push origin v0.2.1`.
 
 GitHub Actions (`.github/workflows/release.yml`) erledigt dann automatisch:
 
 - die Tests ausführen
 - die Windows-`.exe` bauen
 - Versionsnummer und Repository-Name ins Programm schreiben
-- ein Release mit `Fliesenschablone.exe` anlegen
+- ein Release `v0.2.1` mit `Fliesenschablone.exe` anlegen
 
-Nach etwa 10 Minuten steht die `.exe` unter *Releases* zum Download bereit. Alle installierten
-Programme bekommen das Update beim nächsten Start angeboten. Für jede neue Version einfach
-die Nummer erhöhen (`v0.1.1`, `v0.2.0`, …).
+Nach etwa 10 Minuten steht die `.exe` unter *Releases* bereit. Alle installierten Programme
+bekommen das Update beim nächsten Start angeboten.
 
 ### Lokal starten (ohne .exe)
 

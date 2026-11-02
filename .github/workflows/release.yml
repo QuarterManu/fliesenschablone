@@ -1,8 +1,10 @@
 name: Windows-Programm bauen und veröffentlichen
 
-# Startet, sobald ein Versions-Tag wie v0.2.0 hochgeladen wird.
+# Startet, sobald sich die Datei VERSION auf main ändert (oder ein Tag v* hochgeladen wird).
 on:
   push:
+    branches: [main]
+    paths: [VERSION]
     tags: ["v*"]
 
 permissions:
@@ -26,7 +28,9 @@ jobs:
       - name: Version und Repository eintragen
         shell: pwsh
         run: |
-          $v = "${{ github.ref_name }}".TrimStart("v")
+          if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
+          else { $v = (Get-Content VERSION -Raw).Trim() }
+          "VERSION_TAG=v$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $repo = "${{ github.repository }}"
           Set-Content -Encoding utf8 app/version.py "__version__ = `"$v`"`nGITHUB_REPO = `"$repo`""
           Get-Content app/version.py
@@ -53,5 +57,7 @@ jobs:
       - name: Release veröffentlichen
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.VERSION_TAG }}
+          target_commitish: ${{ github.sha }}
           files: dist/Fliesenschablone.exe
           generate_release_notes: true
