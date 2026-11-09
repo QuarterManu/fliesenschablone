@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 from .version import __version__, GITHUB_REPO
@@ -51,12 +52,17 @@ def check_latest(repo: str = GITHUB_REPO, timeout: float = 6.0):
     return tag.lstrip("vV"), asset["browser_download_url"], data.get("body", "") or ""
 
 
+def _exe_dir() -> str:
+    return os.path.dirname(sys.executable) if is_frozen() else tempfile.gettempdir()
+
+
 def download(url: str, progress=None) -> str:
-    """Lädt die neue .exe neben die laufende (gleiches Laufwerk -> Verschieben klappt sicher)."""
-    target_dir = os.path.dirname(sys.executable) if is_frozen() else tempfile.gettempdir()
-    dest = os.path.join(target_dir, ASSET_NAME + ".neu")
+    """Lädt die neue .exe neben die laufende (gleiches Laufwerk -> Umbenennen klappt sicher).
+    Erst nach vollständigem Download wird die Datei in "….exe.neu" umbenannt."""
+    dest = os.path.join(_exe_dir(), ASSET_NAME + ".neu")
+    part = dest + ".teil"
     req = urllib.request.Request(url, headers={"User-Agent": "Fliesenschablone-Updater"})
-    with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
+    with urllib.request.urlopen(req, timeout=30) as r, open(part, "wb") as f:
         total = int(r.headers.get("Content-Length", 0))
         done = 0
         while True:
@@ -67,37 +73,75 @@ def download(url: str, progress=None) -> str:
             done += len(chunk)
             if progress:
                 progress(done, total)
+    if total and os.path.getsize(part) != total:
+        os.remove(part)
+        raise IOError("Download unvollständig")
+    _retry(lambda: os.replace(part, dest))
     return dest
 
 
+def _retry(fn, tries=20, wait=0.25):
+    """Virenscanner halten frisch geladene Dateien oft kurz fest – dann kurz warten."""
+    for i in range(tries):
+        try:
+            return fn()
+        except OSError:
+            if i == tries - 1:
+                raise
+            time.sleep(wait)
+
+
+def _clean_env():
+    """Umgebung ohne PyInstaller-Variablen, damit die neue .exe wirklich frisch startet."""
+    env = {k: v for k, v in os.environ.items() if not (k.startswith("_PYI") or k.startswith("_MEI"))}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def apply_and_restart(new_exe: str) -> bool:
-    """Ersetzt die laufende .exe nach dem Beenden und startet neu. Nur unter Windows/als .exe."""
+    """Tauscht die .exe aus und startet die neue Version.
+
+    Windows erlaubt, eine laufende .exe umzubenennen (nur nicht zu löschen). Daher:
+    laufende .exe -> "….exe.alt", neue Datei -> ursprünglicher Name, neue Version starten.
+    Die alte Datei wird beim nächsten Start aufgeräumt.
+    """
     if not (is_frozen() and os.name == "nt"):
         return False
     exe = sys.executable
-    pid = os.getpid()
-    bat = os.path.join(tempfile.gettempdir(), "fliesenschablone_update.bat")
-    with open(bat, "w", encoding="mbcs" if os.name == "nt" else "utf-8") as f:
-        f.write(f"""@echo off
-:warten
-tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto warten
-)
-set versuche=0
-:ersetzen
-move /Y "{new_exe}" "{exe}" >nul 2>&1
-if errorlevel 1 (
-  set /a versuche+=1
-  if %versuche% lss 15 (
-    timeout /t 1 /nobreak >nul
-    goto ersetzen
-  )
-)
-start "" "{exe}"
-del "%~f0"
-""")
-    flags = 0x08000000 | 0x00000008  # CREATE_NO_WINDOW | DETACHED_PROCESS
-    subprocess.Popen(["cmd", "/c", bat], creationflags=flags, close_fds=True)
+    old = exe + ".alt"
+    if os.path.exists(old):
+        try:
+            os.remove(old)
+        except OSError:
+            old = f"{exe}.alt{int(time.time())}"
+    _retry(lambda: os.replace(exe, old))
+    try:
+        _retry(lambda: os.replace(new_exe, exe))
+    except OSError:
+        os.replace(old, exe)  # zurück zum alten Stand
+        raise
+    flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen([exe], cwd=os.path.dirname(exe), env=_clean_env(), close_fds=True, creationflags=flags)
     return True
+
+
+def startup_maintenance() -> bool:
+    """Beim Programmstart: Reste alter Versionen löschen und ein schon geladenes Update einspielen.
+    Gibt True zurück, wenn die neue Version gestartet wurde und dieses Programm enden soll."""
+    if not (is_frozen() and os.name == "nt"):
+        return False
+    folder = _exe_dir()
+    base = os.path.basename(sys.executable)
+    for name in os.listdir(folder):
+        if name.startswith(base + ".alt") or name.endswith(".neu.teil"):
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError:
+                pass
+    pending = os.path.join(folder, ASSET_NAME + ".neu")
+    if os.path.exists(pending) and os.path.getsize(pending) > 1_000_000:
+        try:
+            return apply_and_restart(pending)
+        except OSError:
+            return False
+    return False

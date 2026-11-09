@@ -960,13 +960,26 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Update", f"Download fehlgeschlagen:\n{e}")
             return
         dlg.close()
-        if updater.apply_and_restart(new):
+        try:
+            ok = updater.apply_and_restart(new)
+        except Exception as e:
+            QMessageBox.warning(self, "Update", f"Das Update konnte nicht eingespielt werden:\n{e}\n\n"
+                                f"Die neue Version liegt als „{os.path.basename(new)}“ im Programmordner und wird "
+                                "beim nächsten Start automatisch übernommen.")
+            return
+        if ok:
             QApplication.quit()
         else:
             QMessageBox.information(self, "Update", f"Neue Version heruntergeladen nach:\n{new}")
 
 
 def main():
+    # Reste eines Updates aufräumen bzw. ein bereits geladenes Update einspielen
+    try:
+        if updater.startup_maintenance():
+            return
+    except Exception:
+        traceback.print_exc()
     app = QApplication(sys.argv)
     app.setApplicationName("Fliesenschablone")
     icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(__file__))),
