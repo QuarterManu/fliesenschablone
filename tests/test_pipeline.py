@@ -80,5 +80,34 @@ def main():
     print(f"OK – {len(p.curves)} Linien, {len(p.struts)} Haltestege, {n} Dreiecke")
 
 
+def test_vector():
+    """PDF und SVG aus dem Fliesenatelier müssen exakt übernommen werden."""
+    from app.vector_import import load_vector
+    data = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    tmp = tempfile.mkdtemp()
+    for name, sym_expected, n_min in [("atelier_viertelrosette", "md2", 10), ("atelier_kaleidoskop", "md1", 40)]:
+        pdf = load_vector(os.path.join(data, name + ".pdf"))
+        svg = load_vector(os.path.join(data, name + ".svg"))
+        assert abs(pdf.size - 200) < 0.01 and abs(svg.size - 200) < 0.01, "Fliesengröße falsch gelesen"
+        assert len(pdf.polylines) == len(svg.polylines) >= n_min, (name, len(pdf.polylines), len(svg.polylines))
+        # PDF und SVG müssen deckungsgleich sein (PDF wird auf 1/100 mm gerundet geschrieben)
+        a, b = np.vstack(pdf.polylines), np.vstack(svg.polylines)
+        assert np.abs(a.min(0) - b.min(0)).max() < 0.05 and np.abs(a.max(0) - b.max(0)).max() < 0.05
+        p = Project()
+        p.load_file(os.path.join(data, name + ".pdf"))
+        assert p.is_vector
+        p.detect()
+        assert sym_expected in p.group, (name, p.group)
+        assert all(abs(c.pts).max() <= 100.001 for c in p.curves), "Linie außerhalb der Fliese"
+        p.suggest_struts()
+        n = p.export_stl(os.path.join(tmp, name + ".stl"))
+        assert n > 1000
+        p.save(os.path.join(tmp, name + ".fliese"))
+        q = Project.load(os.path.join(tmp, name + ".fliese"))
+        assert q.is_vector and len(q.curves) == len(p.curves)
+        print(f"OK Vektor – {name}: {len(p.curves)} Linien, Symmetrie {p.group}, {len(p.struts)} Haltestege")
+
+
 if __name__ == "__main__":
     main()
+    test_vector()

@@ -5,6 +5,14 @@ Macht aus einer gezeichneten Zementfliesen-Vorlage (Foto oder Scan) ein druckfer
 
 ## Was das Programm macht
 
+**Zwei Wege hinein:**
+
+- **PDF oder SVG aus dem Fliesenatelier (empfohlen):** Die Linien werden exakt übernommen,
+  nichts wird erraten. Fliesengröße, Art (Mitte/Rand/Ecke) und Symmetrie stehen in der Datei
+  und werden automatisch gesetzt. Es funktionieren auch andere Vektor-PDFs/SVGs mit einem
+  quadratischen Rahmen im Maßstab 1:1.
+- **Foto oder Scan einer Zeichnung:** wie bisher über die Bilderkennung (Schritte 1–3 unten).
+
 1. **Zeichnung einlesen**: Es findet das gezeichnete Quadrat (auch auf einem schräg
    fotografierten Blatt), entzerrt es und rechnet es auf die eingestellte Fliesengröße um.
 2. **Linien glätten**: Gerade Linien werden exakt gerade und Bögen werden echte Kreisbögen.
@@ -23,7 +31,7 @@ Macht aus einer gezeichneten Zementfliesen-Vorlage (Foto oder Scan) ein druckfer
 
 ## Bedienung
 
-- **Bild öffnen…**: Foto oder Scan der Zeichnung laden. Das ganze Quadrat muss zu sehen
+- **Zeichnung öffnen…**: am besten die PDF (oder SVG) aus dem Fliesenatelier wählen. Alternativ ein Foto oder einen Scan der Zeichnung laden. Das ganze Quadrat muss zu sehen
   sein, am besten dunkle Linien auf hellem Papier.
 - Das Ergebnis in der Vorschau prüfen:
   - dunkelblau: Musterstege

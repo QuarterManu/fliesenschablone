@@ -13,6 +13,7 @@ from . import vision
 from .geometry import Params, auto_struts, build_layers, add_struts, remove_strut
 from .pattern import Curve, FitParams, build_curves, refine_circles
 from .export3d import build_solid, write_stl
+from .vector_import import is_vector_file, load_vector
 
 
 @dataclass
@@ -28,14 +29,35 @@ class Project:
     group: list = field(default_factory=lambda: ["id"])
     curves: list = field(default_factory=list)
     struts: list = field(default_factory=list)
+    source: str = "image"          # "vector" (PDF/SVG, exakt) oder "image" (Foto/Scan, wird erkannt)
+    vector_info: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ Ablauf
+    def load_file(self, path: str):
+        """PDF/SVG werden exakt übernommen, Bilder über die Bilderkennung ausgewertet."""
+        if is_vector_file(path):
+            self.source = "vector"
+            self.image_path = path
+            self.gray = None
+            self.rect = None
+            self.mask = None
+        else:
+            self.load_image(path)
+
     def load_image(self, path: str):
+        self.source = "image"
         self.image_path = path
         self.gray = vision.load_gray(path)
 
+    @property
+    def is_vector(self) -> bool:
+        return self.source == "vector"
+
     def detect(self, auto_symmetry: bool = True):
-        """Bild entzerren, Symmetrie erkennen, Linien erkennen."""
+        """Vektordatei übernehmen – oder Bild entzerren, Symmetrie und Linien erkennen."""
+        if self.is_vector:
+            self._import_vector(auto_symmetry)
+            return
         self.rect = vision.rectify(self.gray, self.params.tile_mm, self.threshold)
         self.mask = vision.line_mask(self.rect, self.threshold)
         self.scores = sym.detect(self.mask, self.rect.line_width_mm * vision.PX_PER_MM)
@@ -43,7 +65,36 @@ class Project:
             self.group = sym.suggest(self.scores)
         self.rebuild_curves()
 
+    def _import_vector(self, auto_symmetry: bool = True):
+        v = load_vector(self.image_path)
+        self.params.tile_mm = v.size
+        self.curves = []
+        for pl in v.polylines:
+            closed = bool(len(pl) >= 4 and np.linalg.norm(pl[0] - pl[-1]) < 1e-3)
+            pts = pl[:-1] if closed else pl
+            self.curves.append(Curve(np.asarray(pts, float), "line" if len(pts) == 2 else "spline", closed))
+        # Symmetrie: aus den Metadaten des Fliesenateliers, sonst aus den Linien bestimmen
+        n = 800
+        k = n / v.size
+        mask = np.zeros((n, n), np.uint8)
+        for pl in v.polylines:
+            q = np.c_[(pl[:, 0] + v.size / 2) * k, (v.size / 2 - pl[:, 1]) * k]
+            cv2.polylines(mask, [np.round(q).astype(np.int32)], False, 255, 3)
+        self.scores = sym.detect(mask, 3, px_per_mm=k)
+        if v.sym:
+            self.group = sym.closure([g for g in v.sym if g != "id"])
+        elif auto_symmetry:
+            self.group = sym.suggest(self.scores)
+        self.vector_info = {"source": v.source, "name": v.name, "type": v.tile_type, "size": v.size,
+                            "from_metadata": bool(v.sym)}
+        self.struts = []
+
     def rebuild_curves(self):
+        if self.is_vector:
+            group = self.group
+            self._import_vector(auto_symmetry=False)
+            self.group = group
+            return
         m = vision.symmetrize_mask(self.mask, self.group, self.rect.line_width_mm)
         graph = vision.skeleton_graph(m)
         self.curves = build_curves(graph, self.rect, self.fit)
@@ -52,7 +103,8 @@ class Project:
 
     def set_symmetry(self, names: list[str]):
         self.group = sym.closure(names)
-        self.rebuild_curves()
+        if not self.is_vector:  # Vektor-Linien sind schon exakt – nur die Gruppe für Haltestege ändern
+            self.rebuild_curves()
 
     def suggest_struts(self):
         self.struts = auto_struts(self.curves, self.params, self.group)
@@ -94,6 +146,8 @@ class Project:
             "curves": [c.to_json() for c in self.curves],
             "struts": [[list(a), list(b)] for a, b in self.struts],
             "image_path": self.image_path,
+            "source": self.source,
+            "vector_info": self.vector_info,
         }
         if self.rect is not None:
             ok, buf = cv2.imencode(".png", self.rect.gray)
@@ -114,6 +168,8 @@ class Project:
         p.curves = [Curve.from_json(c) for c in d.get("curves", [])]
         p.struts = [(tuple(a), tuple(b)) for a, b in d.get("struts", [])]
         p.image_path = d.get("image_path")
+        p.source = d.get("source", "image")
+        p.vector_info = d.get("vector_info", {})
         if "rectified_png" in d:
             buf = np.frombuffer(base64.b64decode(d["rectified_png"]), np.uint8)
             g = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)

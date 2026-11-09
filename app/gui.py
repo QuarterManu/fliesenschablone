@@ -34,6 +34,13 @@ COL_HOVER = QColor(255, 183, 3, 220)
 COL_DRAW = QColor("#2a9d8f")
 
 
+def fmt_size(v):
+    try:
+        return f"{float(v):g}".replace(".", ",")
+    except (TypeError, ValueError):
+        return "?"
+
+
 def geom_path(geom) -> QPainterPath:
     """shapely-Fläche -> QPainterPath (y nach oben = Szene nach unten gespiegelt)."""
     path = QPainterPath()
@@ -217,7 +224,7 @@ class MainWindow(QMainWindow):
         right.addWidget(self._view_toggles())
         h.addLayout(right, 1)
         self.setCentralWidget(central)
-        self.statusBar().showMessage("Bild einer Zeichnung öffnen, um zu starten.")
+        self.statusBar().showMessage("Zeichnung öffnen, um zu starten: am besten die PDF aus dem Fliesenatelier, alternativ ein Foto.")
         self.set_mode("view")
         self._set_enabled(False)
 
@@ -289,7 +296,8 @@ class MainWindow(QMainWindow):
         b = QGroupBox("1. Zeichnung")
         f = QFormLayout(b)
         row = QHBoxLayout()
-        row.addWidget(self._btn("Bild öffnen…", self.open_image))
+        row.addWidget(self._btn("Zeichnung öffnen…", self.open_image,
+                                 "PDF/SVG aus dem Fliesenatelier (exakt) oder Foto/Scan einer Zeichnung"))
         row.addWidget(self._btn("Projekt öffnen…", self.open_project))
         f.addRow(row)
         self.sp_tile = self._dspin(200, 50, 600, 1, 1)
@@ -434,7 +442,7 @@ class MainWindow(QMainWindow):
 
     def _set_enabled(self, on):
         for w in self.findChildren(QPushButton):
-            if w.text() not in ("Bild öffnen…", "Projekt öffnen…"):
+            if w.text() not in ("Zeichnung öffnen…", "Projekt öffnen…"):
                 w.setEnabled(on)
         for t in self.tool_buttons.values():
             t.setEnabled(on)
@@ -752,8 +760,10 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ Aktionen
     def open_image(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Zeichnung öffnen", "",
-                                              "Bilder (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Zeichnung öffnen", "",
+            "Zeichnungen (*.pdf *.svg *.png *.jpg *.jpeg *.bmp *.tif *.tiff);;"
+            "Vektordatei aus dem Fliesenatelier (*.pdf *.svg);;Bilder (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)")
         if not path:
             return
         self.load_image(path)
@@ -763,12 +773,32 @@ class MainWindow(QMainWindow):
         self.project_path = None
         self.history.clear()
         self.read_params()
-        self.project.load_image(path)
+        try:
+            self.project.load_file(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Fehler", f"Die Datei konnte nicht geöffnet werden.\n\n{e}")
+            return
         self.detect(push=False)
 
     def detect(self, push=True):
         if push and self.project.curves:
             self.push_history()
+        if self.project.is_vector and self.project.image_path:
+            self.read_params()
+            r = self.busy(lambda: (self.project.detect(), True)[1], "Vektordatei wird übernommen …")
+            if r:
+                self.busy(self.project.suggest_struts, "Haltestege werden vorgeschlagen …")
+                self.write_params()
+                self.update_symmetry_ui()
+                self.after_change(fit=True)
+                info = self.project.vector_info
+                art = {"mitte": "Mittelfliese", "rand": "Randfliese", "ecke": "Eckfliese"}.get(info.get("type"), "")
+                self.statusBar().showMessage(
+                    f"{info.get('source', '').upper()} übernommen: {len(self.project.curves)} Linien exakt, "
+                    f"{fmt_size(info.get('size'))} mm{', ' + art if art else ''}, "
+                    f"{sym.describe(self.project.group)}{' (aus der Datei)' if info.get('from_metadata') else ''}, "
+                    f"{len(self.project.struts)} Haltestege vorgeschlagen.")
+            return
         if self.project.gray is None:
             if self.project.rect is not None:
                 self.read_params()

@@ -52,7 +52,9 @@ jobs:
           python -c "from tests.test_pipeline import make_drawing; make_drawing('probe.png')"
           $p = Start-Process -Wait -PassThru dist/Fliesenschablone.exe -ArgumentList "--export","probe.png","probe.stl"
           if ($p.ExitCode -ne 0 -or -not (Test-Path probe.stl)) { Write-Error "Die .exe hat keine STL erzeugt"; exit 1 }
-          Get-Item probe.stl
+          $q = Start-Process -Wait -PassThru dist/Fliesenschablone.exe -ArgumentList "--export","tests/data/atelier_kaleidoskop.pdf","probe_pdf.stl"
+          if ($q.ExitCode -ne 0 -or -not (Test-Path probe_pdf.stl)) { Write-Error "Die .exe konnte die PDF nicht verarbeiten"; exit 1 }
+          Get-Item probe.stl, probe_pdf.stl
 
       - name: Release veröffentlichen
         uses: softprops/action-gh-release@v2

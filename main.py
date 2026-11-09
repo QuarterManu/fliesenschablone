@@ -2,10 +2,10 @@ import sys
 
 
 def export_cli(img, out):
-    """Ohne Oberfläche: Fliesenschablone.exe --export zeichnung.jpg ausgabe.stl"""
+    """Ohne Oberfläche: Fliesenschablone.exe --export zeichnung.pdf|.svg|.jpg ausgabe.stl"""
     from app.project import Project
     p = Project()
-    p.load_image(img)
+    p.load_file(img)
     p.detect()
     p.suggest_struts()
     p.export_stl(out)
