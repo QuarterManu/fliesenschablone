@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fliesenatelier</title>
+<style>
+  #lade { position: fixed; inset: 0; display: grid; place-items: center; background: #e4e2de; color: #23262a;
+          font: 16px "Segoe UI", system-ui, sans-serif; text-align: center; line-height: 1.5; padding: 16px; }
+</style>
+</head>
+<body>
+<div id="lade">Fliesenatelier wird geladen …</div>
+<script>
+/* Startdatei für den PC.
+   Lädt bei jedem Öffnen die aktuelle Version des Fliesenateliers aus GitHub,
+   damit Änderungen automatisch ankommen. Ohne Internet wird die zuletzt
+   geladene Version verwendet. Die Fliesen selbst bleiben in diesem Browser. */
+(async () => {
+  const BASE = "https://raw.githubusercontent.com/QuarterManu/fliesenschablone/main/atelier/";
+  const FILES = ["index.html", "core.js", "app.js", "extra.js"];
+  const KEY = "fliesenatelier-programm";
+  const lade = document.getElementById("lade");
+  let files = null, offline = false;
+  try {
+    const bust = "?v=" + Date.now();
+    const texts = await Promise.all(FILES.map(f =>
+      fetch(BASE + f + bust, { cache: "no-store" }).then(r => { if (!r.ok) throw new Error(f + ": " + r.status); return r.text(); })));
+    files = {};
+    FILES.forEach((f, i) => { files[f] = texts[i]; });
+    try { localStorage.setItem(KEY, JSON.stringify({ files, geladen: Date.now() })); } catch (e) {}
+  } catch (e) {
+    try { const c = JSON.parse(localStorage.getItem(KEY) || "null"); if (c && c.files) { files = c.files; offline = true; } } catch (e2) {}
+  }
+  if (!files) {
+    lade.innerHTML = "<b>Das Fliesenatelier konnte nicht geladen werden.</b><br>Bitte die Internetverbindung prüfen und die Seite neu laden (F5).";
+    return;
+  }
+  // Programmoberfläche einsetzen, dann die Skripte der Reihe nach laden
+  let html = files["index.html"];
+  const srcs = [];
+  html = html.replace(/<script src="([^"]+)"><\/script>/g, (m, src) => { srcs.push(src); return ""; });
+  document.title = "Fliesenatelier";
+  const reset = document.createElement("style");
+  reset.textContent = "html,body{height:100%}body{margin:0;font:14px system-ui,sans-serif;display:block}img{max-width:100%}[hidden]{display:none!important}";
+  document.head.appendChild(reset);
+  document.body.removeAttribute("style");
+  document.body.innerHTML = html;
+  document.querySelectorAll("body > style").forEach(st => { if (st !== reset) document.head.appendChild(st); });
+  for (const src of srcs) {
+    const el = document.createElement("script");
+    el.src = files[src] !== undefined ? URL.createObjectURL(new Blob([files[src]], { type: "text/javascript" })) : src;
+    await new Promise((res, rej) => { el.onload = res; el.onerror = () => rej(new Error(src)); document.body.appendChild(el); })
+      .catch(e => { console.error("Konnte nicht laden:", e.message); });
+  }
+  if (offline) setTimeout(() => { if (window.toast) toast("Keine Internetverbindung – die zuletzt geladene Version wird verwendet.", 6000); }, 1500);
+})();
+</script>
+</body>
+</html>

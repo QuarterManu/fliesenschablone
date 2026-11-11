@@ -69,6 +69,19 @@ Die Standardmaße sind aus der Referenzdatei `01_Ringe.stl` übernommen:
 
 Alle Werte lassen sich im Programm unter **4. Maße** ändern.
 
+## Fliesenatelier (Zeichenprogramm im Browser)
+
+Mit dem Fliesenatelier werden Fliesen sauber digital gezeichnet und als PDF/SVG gespeichert.
+Diese Dateien übernimmt die Schablonen-Software exakt.
+
+- **Auf dem PC:** die Datei [`atelier/Fliesenatelier.html`](atelier/Fliesenatelier.html) herunterladen
+  und per Doppelklick im Browser öffnen (am besten Chrome oder Edge). Sie lädt bei jedem Start die
+  aktuelle Programmversion aus diesem Repository. Updates kommen also automatisch, die Datei muss
+  nie ausgetauscht werden.
+- Die Fliesen werden im Browser gespeichert. Über **Bibliothek → Bibliothek als Datei sichern**
+  lässt sich alles als Datei auf dem PC sichern und auf einem anderen Rechner wieder laden.
+- Der Ordner `atelier/` enthält das Programm selbst (`index.html`, `core.js`, `app.js`, `extra.js`).
+
 ---
 
 ## Für Entwickler: Veröffentlichen und automatische Updates

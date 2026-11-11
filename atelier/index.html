@@ -1,0 +1,231 @@
+<title>Fliesenatelier</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Werkstatt-Layout: Werkzeugleiste links, Zeichenbrett in der Mitte, Eigenschaften rechts.
+   Farben: Beton-Grau mit einem Messing-Akzent wie die Trennstege der Fliesenform. */
+:root {
+  --bg: #e4e2de;          /* Betonwand */
+  --panel: #f3f2ef;       /* Werkbank */
+  --panel-2: #ebe9e5;
+  --line: #cfccc6;
+  --fg: #23262a;
+  --muted: #6b6e72;
+  --accent: #9a7420;      /* Messing */
+  --accent-fg: #ffffff;
+  --accent-soft: #efe4c8;
+  --ink: #1b1d20;         /* Linienfarbe auf dem Zeichenbrett */
+  --paper: #fbfaf7;
+  --danger: #b3342b;
+  --ok: #3f7a4b;
+  --sel: #2a6fd6;
+  --shadow: 0 6px 24px rgba(30, 28, 24, .16);
+  --font-ui: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-label: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1e1f21; --panel: #2a2b2e; --panel-2: #333438; --line: #44464b; --fg: #ecebe8; --muted: #a3a4a8;
+    --accent: #d0a443; --accent-fg: #1b1b1b; --accent-soft: #4a3f25; --ink: #1b1d20; --paper: #e9e7e2;
+    --danger: #e0645a; --ok: #7cc28a; --sel: #5b9bff; --shadow: 0 6px 24px rgba(0,0,0,.5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1e1f21; --panel: #2a2b2e; --panel-2: #333438; --line: #44464b; --fg: #ecebe8; --muted: #a3a4a8;
+  --accent: #d0a443; --accent-fg: #1b1b1b; --accent-soft: #4a3f25; --ink: #1b1d20; --paper: #e9e7e2;
+  --danger: #e0645a; --ok: #7cc28a; --sel: #5b9bff; --shadow: 0 6px 24px rgba(0,0,0,.5); color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px; overflow: hidden; }
+* { box-sizing: border-box; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
+
+#app { height: 100%; display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: auto 1fr 300px;
+  grid-template-areas: "top top top" "tools stage side" "hint hint hint";
+  padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+
+/* Kopfleiste */
+#top { grid-area: top; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--font-label); font-weight: 700; font-size: 20px; letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+.brand svg { width: 26px; height: 26px; }
+.tile-name { border: 1px solid transparent; background: transparent; padding: 4px 8px; border-radius: 6px; font-weight: 600; font-size: 15px; min-width: 0; width: 15em; }
+.tile-name:hover, .tile-name:focus { border-color: var(--line); background: var(--paper); color: #1b1d20; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel-2); }
+.seg button { border: 0; background: transparent; padding: 6px 12px; font-weight: 600; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.btn { border: 1px solid var(--line); background: var(--panel-2); padding: 6px 12px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn svg { width: 18px; height: 18px; }
+.spacer { flex: 1; }
+.label-sm { font-family: var(--font-label); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; color: var(--muted); font-weight: 600; }
+.palettes { display: flex; gap: 6px; align-items: center; }
+.pal { display: flex; border: 2px solid transparent; border-radius: 7px; overflow: hidden; padding: 0; background: none; }
+.pal span { width: 11px; height: 22px; display: block; }
+.pal[aria-pressed="true"] { border-color: var(--accent); }
+.save-state { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.save-state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.save-state.warn .dot { background: var(--accent); }
+.save-state.busy .dot { background: var(--muted); }
+
+/* Werkzeugleiste */
+#tools { grid-area: tools; background: var(--panel); border-right: 1px solid var(--line); padding: 8px 6px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; width: 92px; }
+.tool { border: 1px solid transparent; background: transparent; border-radius: 8px; padding: 6px 2px 5px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; font-weight: 600; line-height: 1.1; }
+.tool svg { width: 26px; height: 26px; }
+.tool:hover { background: var(--panel-2); }
+.tool[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.tool-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+.tool-group { font-family: var(--font-label); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; text-align: center; margin-top: 4px; }
+
+/* Zeichenbrett */
+#stage { grid-area: stage; position: relative; overflow: hidden; min-width: 0; touch-action: none; }
+#canvas { width: 100%; height: 100%; display: block; }
+#canvas.cur-cross { cursor: crosshair; }
+#canvas.cur-move { cursor: move; }
+#canvas.cur-grab { cursor: grab; }
+#canvas.cur-grabbing { cursor: grabbing; }
+#canvas.cur-cell { cursor: cell; }
+.stage-ctrl { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
+.stage-ctrl .btn { background: var(--panel); box-shadow: var(--shadow); }
+.stage-top { position: absolute; left: 12px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.stage-top > * { pointer-events: auto; }
+.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; box-shadow: var(--shadow); }
+.chip input { margin: 0; }
+.busy-chip { display: none; }
+.busy-chip.on { display: inline-flex; }
+
+/* Eigenschaften */
+#side { grid-area: side; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; }
+.sec { display: flex; flex-direction: column; gap: 8px; }
+.sec h3 { margin: 0; font-family: var(--font-label); font-size: 15px; letter-spacing: .03em; text-transform: uppercase; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row > label { flex: 1; min-width: 0; }
+.field { display: grid; grid-template-columns: 1fr 96px; align-items: center; gap: 8px; }
+.field input[type=number], .field select { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: #1b1d20; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.help { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.sw { width: 36px; height: 36px; border-radius: 8px; border: 2px solid var(--line); position: relative; }
+.sw[aria-pressed="true"] { border-color: var(--sel); box-shadow: 0 0 0 2px var(--sel); }
+.sw small { position: absolute; bottom: 1px; right: 4px; font-size: 10px; font-weight: 700; color: #111; text-shadow: 0 0 2px #fff; }
+
+/* Hinweisleiste */
+#hint { grid-area: hint; background: var(--panel); border-top: 1px solid var(--line); padding: 7px max(16px, env(safe-area-inset-right, 0px)) calc(7px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13.5px; }
+#hint-text { flex: 1; min-width: 0; }
+#hint-text b { color: var(--accent); }
+.kbd { font-family: var(--font-label); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; background: var(--paper); color: #1b1d20; }
+
+/* Dialoge */
+.modal { position: fixed; inset: 0; background: rgba(20, 20, 18, .45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
+.dialog { background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); max-width: 100%; max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.dialog header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.dialog header h2 { margin: 0; font-family: var(--font-label); font-size: 20px; flex: 1; }
+.dialog .body { padding: 14px 16px; overflow: auto; }
+.dialog footer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; justify-content: flex-end; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.lib-card { border: 2px solid var(--line); border-radius: 10px; padding: 8px; background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; cursor: pointer; text-align: left; }
+.lib-card:hover { border-color: var(--accent); }
+.lib-card.current { border-color: var(--sel); }
+.lib-card svg { width: 100%; aspect-ratio: 1; border-radius: 4px; display: block; background: var(--paper); }
+.lib-card .name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-family: var(--font-label); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; background: var(--accent-soft); color: var(--fg); border-radius: 4px; padding: 1px 6px; align-self: flex-start; }
+.lib-section { margin: 12px 0 8px; }
+.sym-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.sym-card { border: 2px solid var(--line); border-radius: 10px; padding: 8px; background: var(--panel-2); display: flex; flex-direction: column; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; text-align: center; }
+.sym-card[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.sym-card svg { width: 80px; height: 80px; }
+#floor-wrap { display: grid; grid-template-columns: 260px 1fr; gap: 16px; min-height: 0; }
+#floor-svg { width: 100%; height: 100%; min-height: 300px; display: block; background: var(--bg); border-radius: 8px; }
+.import-stage { position: relative; background: #111; border-radius: 8px; overflow: hidden; touch-action: none; }
+.import-stage canvas, .import-stage svg { display: block; }
+.import-stage svg { position: absolute; inset: 0; }
+.toast { position: fixed; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-weight: 600; z-index: 80; box-shadow: var(--shadow); max-width: 90vw; }
+.popover { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; width: min(420px, 92%); z-index: 10; }
+.menu { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; z-index: 60; min-width: 250px; }
+.menu button { border: 0; background: transparent; text-align: left; padding: 8px 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 1px; }
+.menu button:hover { background: var(--panel-2); }
+.menu button small { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 900px) {
+  #app { grid-template-columns: auto 1fr; grid-template-areas: "top top" "tools stage" "side side" "hint hint"; grid-template-rows: auto 1fr auto auto; }
+  #side { max-height: 34vh; border-left: 0; border-top: 1px solid var(--line); }
+  #tools { width: 76px; }
+  .tool { font-size: 11px; }
+  #floor-wrap { grid-template-columns: 1fr; }
+  .tile-name { width: 10em; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div id="app">
+  <header id="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="3" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M30 30 A 14 14 0 0 0 16 16 A 14 14 0 0 0 2 2" fill="none" stroke="var(--accent)" stroke-width="2.2"/><circle cx="16" cy="16" r="3.2" fill="var(--accent)"/></svg>
+      Fliesenatelier
+    </div>
+    <input id="tile-name" class="tile-name" value="" aria-label="Name der Fliese">
+    <div class="seg" role="group" aria-label="Art der Fliese" id="tile-type">
+      <button data-type="mitte" aria-pressed="true" title="Mittelfliese für die Fläche">Mitte</button>
+      <button data-type="rand" aria-pressed="false" title="Randfliese – der Rand liegt unten">Rand</button>
+      <button data-type="ecke" aria-pressed="false" title="Eckfliese – die Ecke liegt unten links">Ecke</button>
+    </div>
+    <button class="btn" id="btn-sym" title="Spiegelung und Drehung einstellen"></button>
+    <button class="btn" id="btn-library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Bibliothek</button>
+    <button class="btn" id="btn-floor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l9 4 9-4M3 12l9 4 9-4M12 3l9 4-9 4-9-4 9-4z"/></svg>Boden-Vorschau</button>
+    <div class="spacer"></div>
+    <div class="palettes" id="palettes" aria-label="Farbpalette"></div>
+    <button class="btn primary" id="btn-export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Speichern als …</button>
+    <div class="save-state busy" id="save-state"><span class="dot"></span><span id="save-text">Wird geladen …</span></div>
+  </header>
+
+  <nav id="tools" aria-label="Werkzeuge"></nav>
+
+  <main id="stage">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="stage-top">
+      <label class="chip"><input type="checkbox" id="opt-color" checked> Farben zeigen</label>
+      <label class="chip"><input type="checkbox" id="opt-thick"> Stege echt dick</label>
+      <span class="chip busy-chip" id="busy-chip">Wird berechnet …</span>
+    </div>
+    <div class="stage-ctrl">
+      <button class="btn" id="btn-undo" title="Rückgängig (Strg+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>Zurück</button>
+      <button class="btn" id="btn-redo" title="Wiederholen (Strg+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 000 12h3"/></svg>Vor</button>
+      <button class="btn" id="btn-zoom-out" title="Verkleinern">−</button>
+      <button class="btn" id="btn-zoom-in" title="Vergrößern">+</button>
+      <button class="btn" id="btn-fit" title="Ganze Fliese zeigen">Einpassen</button>
+    </div>
+  </main>
+
+  <aside id="side" aria-label="Einstellungen"></aside>
+
+  <footer id="hint">
+    <span id="hint-text"></span>
+    <label class="row" style="gap:6px"><input type="checkbox" id="opt-snap" checked> Einrasten</label>
+    <label class="row" style="gap:6px">Raster
+      <select id="opt-grid" style="padding:3px 4px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:#1b1d20">
+        <option value="0">aus</option><option value="5">5 mm</option><option value="10" selected>10 mm</option><option value="12.5">12,5 mm</option><option value="25">25 mm</option>
+      </select>
+    </label>
+    <span id="cursor-pos" class="label-sm" style="min-width:9em;text-align:right"></span>
+  </footer>
+</div>
+
+<div class="modal" id="modal" hidden></div>
+<div class="toast" id="toast" hidden></div>
+<input type="file" id="file-img" accept="image/*" hidden>
+<input type="file" id="file-json" accept=".json,application/json" hidden>
+
+<script src="https://cdn.jsdelivr.net/npm/jsts@2.12.1/dist/jsts.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="core.js"></script>
+<script src="app.js"></script>
+<script src="extra.js"></script>
