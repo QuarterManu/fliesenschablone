@@ -97,7 +97,7 @@ const HINTS = {
 
 // ------------------------------------------------------------------ Fliese
 function newTile(type = "mitte", name) {
-  return { id: C.uid("t"), name: name || "Neue Fliese", type, size: 200, sym: "none", shapes: [], erasers: [], fills: [],
+  return { id: C.uid("t"), name: name || "Neue Fliese", type, size: 200, sym: "none", palette: App.palette, shapes: [], erasers: [], fills: [],
     bg: null, bgOpacity: 0.5, bgShow: true, created: Date.now(), updated: Date.now() };
 }
 function sampleTile() {
@@ -1177,8 +1177,9 @@ function buildPalettes() {
   $("#palettes").innerHTML = `<span class="label-sm">Farben</span>` + PALETTES.map((p, i) => `<button class="pal" data-pal="${i}" title="${p.name}" aria-pressed="${i === App.palette}">${p.colors.map(c => `<span style="background:${c}"></span>`).join("")}</button>`).join("");
   document.querySelectorAll("[data-pal]").forEach(b => b.onclick = () => {
     App.palette = +b.dataset.pal; buildPalettes(); renderAll(); renderSide();
+    if (App.tile) { App.tile.palette = App.palette; if (window.Store) scheduleSave(); }
     try { localStorage.setItem("fa-palette", App.palette); } catch (e) {}
-    toast("Palette: " + PALETTES[App.palette].name);
+    toast("Farben dieser Fliese: " + PALETTES[App.palette].name);
   });
 }
 function initUI() {
@@ -1197,6 +1198,10 @@ function initUI() {
 }
 function loadTileIntoEditor(tile, bgData) {
   App.tile = tile;
+  // Jede Fliese merkt sich ihre eigene Farbpalette
+  if (tile.palette === undefined || tile.palette === null || !PALETTES[tile.palette]) tile.palette = App.palette;
+  App.palette = tile.palette;
+  if (document.querySelector("#palettes .pal")) buildPalettes();
   App.bgImg = bgData || null;
   App.sel = []; App.st = null; App.arr = null; App.arrDirty = true;
   App.hist = { undo: [], redo: [] };

@@ -76,6 +76,19 @@ def _quad(p0, p1, p2, step=0.4):
     return _cubic(p0, p0 + 2 / 3 * (p1 - p0), p2 + 2 / 3 * (p1 - p2), p2, step)
 
 
+def _only_frame(q, half, tol=0.05):
+    """True, wenn jedes Teilstück der Linie entlang derselben Fliesenkante läuft.
+    Eine gerade Linie von Rand zu Rand hat beide Enden auf dem Rahmen, ist aber keiner."""
+    if len(q) < 2:
+        return False
+    a, b = q[:-1], q[1:]
+    on = np.zeros(len(a), bool)
+    for ax in (0, 1):
+        for s in (-half, half):
+            on |= (np.abs(a[:, ax] - s) < tol) & (np.abs(b[:, ax] - s) < tol)
+    return bool(on.all())
+
+
 def _finish(polylines_mm_ydown, frame, meta, source):
     """frame = (x0, y0, x1, y1) in mm, y nach unten. Wandelt in Fliesen-Koordinaten um."""
     x0, y0, x1, y1 = frame
@@ -89,7 +102,7 @@ def _finish(polylines_mm_ydown, frame, meta, source):
         q = np.c_[pl[:, 0] - x0 - half, half - (pl[:, 1] - y0)]
         # Stücke, die nur auf dem Rahmen liegen, werden nicht gebraucht (Rahmen wird erzeugt)
         d = half - np.maximum(np.abs(q[:, 0]), np.abs(q[:, 1]))
-        if np.all(np.abs(d) < 0.05):
+        if _only_frame(q, half):
             continue
         # Punkte außerhalb der Fliese verwerfen (kleine Toleranz)
         if np.all(d < -0.5):

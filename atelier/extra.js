@@ -11,7 +11,15 @@ const Store = {
         const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
         if (db && user) {
           const id = await user.id();
-          if (id) { this.db = db; this.uid = id; this.mode = "cloud"; }
+          if (id) {
+            this.db = db; this.uid = id;
+            // Darf diese Person hier überhaupt speichern? (In fremden Konten meist nicht.)
+            try {
+              await withTimeout(this.tiles().doc("_probe").set({ t: Date.now() }), 8000);
+              await this.tiles().doc("_probe").delete().catch(() => {});
+              this.mode = "cloud";
+            } catch (e) { console.warn("Kein Schreibrecht im Claude-Konto", e); this.db = null; }
+          }
         }
       }
     } catch (e) { console.warn(e); }
@@ -36,16 +44,41 @@ const Store = {
   },
   tiles() { return this.db.doc(`data/users/${this.uid}/store`).collection("tiles"); },
   bgs() { return this.db.doc(`data/users/${this.uid}/store`).collection("bgs"); },
+  async localTiles() {
+    // Fliesen, die früher in diesem Browser gespeichert wurden (unabhängig vom aktuellen Modus)
+    try {
+      const db = await new Promise((res, rej) => {
+        const r = indexedDB.open("fliesenatelier", 1);
+        r.onupgradeneeded = () => { r.result.createObjectStore("tiles"); r.result.createObjectStore("bgs"); };
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+      return await new Promise((res, rej) => { const q = db.transaction("tiles", "readonly").objectStore("tiles").getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+    } catch (e) { return []; }
+  },
   async fallback(err) {
     console.warn("Speichern im Claude-Konto nicht möglich", err);
     await this.openIDB();
     toast("Im Claude-Konto kann hier nicht gespeichert werden – die Fliesen werden in diesem Browser gespeichert.", 5000);
+    mergeTiles(await this.localTiles());
     for (const t of App.lib) await this.saveTile(t).catch(() => {});
     setSaveState();
   },
   async listTiles() {
     if (this.mode === "cloud") {
-      try { const snap = await withTimeout(this.tiles().get(), 12000); return snap.docs.map(d => d.data()).filter(Boolean).map(d => JSON.parse(JSON.stringify(d))); }
+      try {
+        const snap = await withTimeout(this.tiles().get(), 12000);
+        const cloud = snap.docs.filter(d => d.id !== "_probe").map(d => d.data()).filter(t => t && Array.isArray(t.shapes)).map(d => JSON.parse(JSON.stringify(d)));
+        // Fliesen, die vorher nur in diesem Browser lagen, ins Konto übernehmen
+        const local = await this.localTiles();
+        for (const t of local) {
+          const c = cloud.find(x => x.id === t.id);
+          if (!c || (t.updated || 0) > (c.updated || 0)) {
+            if (c) cloud.splice(cloud.indexOf(c), 1);
+            cloud.push(t); this.saveTile(t).catch(() => {});
+          }
+        }
+        return cloud;
+      }
       catch (e) { await this.openIDB(); toast("Die gespeicherten Fliesen sind gerade nicht erreichbar – es wird lokal weitergearbeitet.", 5000); }
     }
     if (this.mode === "local") return (await this.idbOp("tiles", "readonly", st => st.getAll())) || [];
@@ -81,14 +114,23 @@ const Store = {
 };
 window.Store = Store;
 App.lib = [];
+function mergeTiles(list) {
+  for (const t of list) {
+    if (!t || !Array.isArray(t.shapes)) continue;
+    const i = App.lib.findIndex(x => x.id === t.id);
+    if (i < 0) App.lib.push(t);
+    else if ((t.updated || 0) > (App.lib[i].updated || 0) && App.lib[i] !== App.tile) App.lib[i] = t;
+  }
+}
 
 function setSaveState(state) {
   const el = $("#save-state"), tx = $("#save-text");
   el.classList.remove("warn", "busy");
-  if (state === "busy") { el.classList.add("busy"); tx.textContent = "Speichert …"; return; }
+  if (state === "busy") { el.classList.add("busy"); tx.textContent = "Änderung wird gespeichert …"; return; }
   if (state === "error") { el.classList.add("warn"); tx.textContent = "Nicht gespeichert – bitte als Datei sichern"; return; }
-  if (Store.mode === "cloud") tx.textContent = "Gespeichert im Claude-Konto";
-  else if (Store.mode === "local") { el.classList.add("warn"); tx.textContent = "Gespeichert in diesem Browser"; }
+  const zeit = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  if (Store.mode === "cloud") tx.textContent = `Automatisch gespeichert (${zeit}, Claude-Konto)`;
+  else if (Store.mode === "local") { tx.textContent = `Automatisch gespeichert (${zeit}, in diesem Browser)`; }
   else { el.classList.add("warn"); tx.textContent = "Nur vorübergehend – bitte sichern"; }
 }
 
@@ -129,7 +171,8 @@ function tileArt(t, pal, opts = {}) {
   const lw = opts.lw ?? S / 160;
   return `<rect width="${S}" height="${S}" fill="${colors[0]}"/>${faces}${opts.noLines ? "" : `<path d="${lines}" fill="none" stroke="#202225" stroke-width="${lw}" stroke-linejoin="round" stroke-opacity="${opts.lineOpacity ?? 1}"/>`}<rect width="${S}" height="${S}" fill="none" stroke="#202225" stroke-width="${lw * 1.5}"/>`;
 }
-const thumb = (t, pal = App.palette) => `<svg viewBox="0 0 ${t.size} ${t.size}" aria-hidden="true">${tileArt(t, pal)}</svg>`;
+const tilePal = t => (t.palette ?? App.palette);
+const thumb = (t, pal = tilePal(t)) => `<svg viewBox="0 0 ${t.size} ${t.size}" aria-hidden="true">${tileArt(t, pal)}</svg>`;
 
 // ------------------------------------------------------------------ Bibliothek
 async function openTile(id) {
@@ -244,7 +287,7 @@ $("#file-json").addEventListener("change", async e => {
 });
 
 // ------------------------------------------------------------------ Boden-Vorschau
-let floorCfg = { w: 6, h: 6, mid: null, mid2: null, rand: "", ecke: "", layout: "gleich", rot: 0, grout: true };
+let floorCfg = { w: 6, h: 6, mid: null, mid2: null, rand: "", ecke: "", layout: "gleich", rot: 0, grout: true, pal: -1 };
 try { Object.assign(floorCfg, JSON.parse(localStorage.getItem("fa-floor") || "{}")); } catch (e) {}
 async function openFloor() {
   ensureArrangement();
@@ -267,7 +310,7 @@ async function openFloor() {
         <label class="field" style="grid-template-columns:1fr"><span>Randfliese</span><select id="fl-rand">${opt(by("rand"), floorCfg.rand, "– kein Rand –")}</select></label>
         <label class="field" style="grid-template-columns:1fr"><span>Eckfliese</span><select id="fl-ecke">${opt(by("ecke"), floorCfg.ecke, "– keine Ecke –")}</select></label>
         <label class="row"><input type="checkbox" id="fl-grout" ${floorCfg.grout ? "checked" : ""}> Fugen zeigen</label>
-        <div class="sec"><span class="label-sm">Farbpalette</span><div class="palettes" id="fl-pal" style="flex-wrap:wrap"></div></div>
+        <div class="sec"><span class="label-sm">Farben in der Vorschau</span><div class="palettes" id="fl-pal" style="flex-wrap:wrap"></div><p class="help">„Eigene“ = jede Fliese in ihren eigenen Farben. Eine Palette hier anzuklicken ändert nur die Vorschau, nicht die Fliesen.</p></div>
         <p class="help">Randfliesen werden so gedreht, dass ihre Außenkante (unten gezeichnet) immer nach außen zeigt. Eckfliesen ebenso (Ecke unten links gezeichnet).</p>
       </div>
       <svg id="floor-svg" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -278,8 +321,10 @@ async function openFloor() {
   $("#fl-grout").onchange = e => { floorCfg.grout = e.target.checked; rerender(); };
   $("#fl-rot").onclick = () => { floorCfg.rot = (floorCfg.rot + 90) % 360; rerender(); };
   const palRow = () => {
-    $("#fl-pal").innerHTML = PALETTES.map((p, i) => `<button class="pal" data-fp="${i}" title="${p.name}" aria-pressed="${i === App.palette}">${p.colors.map(c => `<span style="background:${c}"></span>`).join("")}</button>`).join("");
-    document.querySelectorAll("[data-fp]").forEach(b => b.onclick = () => { App.palette = +b.dataset.fp; buildPalettes(); renderAll(); palRow(); drawFloor(); });
+    const cur = floorCfg.pal ?? -1;
+    $("#fl-pal").innerHTML = `<button class="btn" data-fp="-1" aria-pressed="${cur === -1}" style="${cur === -1 ? "border-color:var(--accent);background:var(--accent-soft)" : ""}">Eigene</button>` +
+      PALETTES.map((p, i) => `<button class="pal" data-fp="${i}" title="${p.name}" aria-pressed="${i === cur}">${p.colors.map(c => `<span style="background:${c}"></span>`).join("")}</button>`).join("");
+    document.querySelectorAll("[data-fp]").forEach(b => b.onclick = () => { floorCfg.pal = +b.dataset.fp; palRow(); rerender(); });
   };
   palRow();
   $("#floor-jpg").onclick = saveFloorJpg;
@@ -311,7 +356,7 @@ function floorLayout() {
 function floorSVGString(cellPx = 100) {
   const c = floorCfg, cells = floorLayout(), gap = c.grout ? cellPx * 0.03 : 0, step = cellPx + gap;
   const used = [...new Set(cells.map(x => x.tile).filter(Boolean))];
-  const defs = used.map(t => `<symbol id="fs-${t.id}" viewBox="0 0 ${t.size} ${t.size}">${tileArt(t, App.palette, { noLines: true })}</symbol>`).join("");
+  const defs = used.map(t => `<symbol id="fs-${t.id}" viewBox="0 0 ${t.size} ${t.size}">${tileArt(t, (floorCfg.pal ?? -1) >= 0 ? floorCfg.pal : tilePal(t), { noLines: true })}</symbol>`).join("");
   const W = c.w * step - gap, H = c.h * step - gap;
   const items = cells.map(cl => cl.tile ? `<use href="#fs-${cl.tile.id}" x="${cl.x * step}" y="${cl.y * step}" width="${cellPx}" height="${cellPx}" transform="rotate(${cl.rot} ${cl.x * step + cellPx / 2} ${cl.y * step + cellPx / 2})"/>` : "").join("");
   return { svg: `<defs>${defs}</defs><rect x="${-gap}" y="${-gap}" width="${W + gap * 2}" height="${H + gap * 2}" fill="#b9b5ae"/>${items}`, W, H, gap };

@@ -432,7 +432,12 @@ const Core = (() => {
       const mid = pointAtLength(pts, L / 2);
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const p of pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
-      const frame = pts.every(p => Math.min(Math.abs(p[0]), Math.abs(p[1]), Math.abs(S - p[0]), Math.abs(S - p[1])) < 0.01);
+      // Rahmenstück nur, wenn jedes Teilstück entlang einer Fliesenkante läuft
+      // (eine gerade Linie von Rand zu Rand hat zwar beide Enden auf dem Rahmen, ist aber keiner)
+      const onEdge = (a, b) => (Math.abs(a[0]) < 0.01 && Math.abs(b[0]) < 0.01) || (Math.abs(a[1]) < 0.01 && Math.abs(b[1]) < 0.01) ||
+        (Math.abs(S - a[0]) < 0.01 && Math.abs(S - b[0]) < 0.01) || (Math.abs(S - a[1]) < 0.01 && Math.abs(S - b[1]) < 0.01);
+      let frame = pts.length >= 2;
+      for (let i = 0; i < pts.length - 1 && frame; i++) frame = onEdge(pts[i], pts[i + 1]);
       return { ids, pts, mid, len: L, bbox: [x0, y0, x1, y1], frame };
     }).filter(pc => pc.len > 1e-4 && inside(pc.mid));
     // Gelöschte Stücke entfernen

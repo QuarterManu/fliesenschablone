@@ -106,6 +106,15 @@ def test_vector():
         q = Project.load(os.path.join(tmp, name + ".fliese"))
         assert q.is_vector and len(q.curves) == len(p.curves)
         print(f"OK Vektor – {name}: {len(p.curves)} Linien, Symmetrie {p.group}, {len(p.struts)} Haltestege")
+    # Gerade Linien von Rand zu Rand dürfen nicht als Rahmen verworfen werden
+    svg = os.path.join(tmp, "rand.svg")
+    with open(svg, "w") as f:
+        f.write('<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="200mm" viewBox="0 0 200 200">'
+                '<rect x="0" y="0" width="200" height="200" fill="none" stroke="#000"/>'
+                '<path d="M0 60L200 60M0 0L200 200M0 0L0 200" fill="none" stroke="#000"/></svg>')
+    v = load_vector(svg)
+    assert len(v.polylines) == 2, f"Rand-zu-Rand-Linien verloren: {len(v.polylines)}"
+    print("OK Vektor – Linien von Rand zu Rand bleiben erhalten")
 
 
 if __name__ == "__main__":
